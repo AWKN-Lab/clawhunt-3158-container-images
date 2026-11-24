@@ -334,7 +334,11 @@ jobs:
         run: |
           set -euo pipefail
           for repo in clawhunt-3158-backend clawhunt-3158-web; do
-            versions="$(gh api --paginate "orgs/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]')"
+            # owner 是**用户账号**（实测 /users/AWKN-Lab → 200、/orgs/AWKN-Lab → 404），
+            # GHCR 的容器包路径用 users/<owner>；先试 users，再回退 orgs（万一以后转组织）。
+            versions="$(gh api --paginate "users/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]' 2>/dev/null)" \
+              || versions="$(gh api --paginate "orgs/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]' 2>/dev/null)" \
+              || { echo "::error::$repo 在 GHCR 上查不到版本"; exit 1; }
             test -n "$versions" || { echo "::error::$repo 在 GHCR 上没有版本"; exit 1; }
             echo "$repo tags:"
             printf '%s\n' "$versions"
