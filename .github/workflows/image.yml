@@ -30,6 +30,12 @@ on:
 
 permissions:
   contents: read
+  # evidence 作业要把镜像推到 GHCR（验收 1/2/3 都在那里核）⇒ 需要 packages: write。
+  # **job 级 permissions 不能超过顶层上限** —— 顶层只给 contents: read 时，
+  # evidence 的 packages: write 会在 "Set up job" 阶段被 GitHub 直接拒绝
+  # （实测：job 只有 "Set up job" 一步且失败，其余步骤根本没开始）。
+  # 需要推 ACR / 只读代码的 job 在自己那层显式收紧回 contents: read。
+  packages: write
 
 env:
   REGISTRY: ${{ vars.ACR_REGISTRY }}
@@ -42,6 +48,8 @@ jobs:
     if: ${{ vars.ACR_REGISTRY != '' && vars.ACR_NAMESPACE != '' }}
     runs-on: ubuntu-latest
     environment: prod
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
