@@ -172,6 +172,7 @@ jobs:
         with:
           name: trivy-reports
           path: trivy-*.sarif
+            trivy-*.json
           retention-days: 30
 
   evidence:
@@ -296,9 +297,10 @@ jobs:
         with:
           name: trivy-reports-evidence
           path: trivy-*.sarif
+            trivy-*.json
           retention-days: 30
 
-      - name: Trivy 扫描后端镜像
+      - name: Trivy 扫描后端镜像（出报告）
         run: |
           set -euo pipefail
           IMAGE="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}"
@@ -307,10 +309,20 @@ jobs:
             -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
             -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
             ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
-            --format table --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+            --format json --output trivy-backend.json --severity CRITICAL,HIGH --ignore-unfixed --exit-code 0
           rm -f image.tar
 
-      - name: Trivy 扫描前端镜像
+      - name: 门禁：后端镜像无 CRITICAL/HIGH
+        run: |
+          set -euo pipefail
+          # **先出报告再断言**：退出码之外，把命中清单打印出来 ——
+          # 失败时这段输出会进 annotation ⇒ 不必再等 actions:read 才能看到原因。
+          python3 -c "import json;d=json.load(open('trivy-backend.json'));h=[(v.get('Severity'),v.get('VulnerabilityID'),v.get('PkgName'),v.get('InstalledVersion'),v.get('FixedVersion'),(r.get('Target') or '')[:28]) for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])];print('HITS=%d'%len(h));[print('  ',x) for x in h[:25]]"
+          if python3 -c "import json,sys;d=json.load(open('trivy-backend.json'));sys.exit(0 if any(v.get('Severity') in ('CRITICAL','HIGH') for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])) else 1)"; then
+            echo "::error::后端镜像存在 CRITICAL/HIGH 漏洞（命中清单见上）"
+            exit 1
+          fi
+      - name: Trivy 扫描前端镜像（出报告）
         run: |
           set -euo pipefail
           IMAGE="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}"
@@ -319,9 +331,19 @@ jobs:
             -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
             -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
             ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
-            --format table --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+            --format json --output trivy-web.json --severity CRITICAL,HIGH --ignore-unfixed --exit-code 0
           rm -f image.tar
 
+      - name: 门禁：前端镜像无 CRITICAL/HIGH
+        run: |
+          set -euo pipefail
+          # **先出报告再断言**：退出码之外，把命中清单打印出来 ——
+          # 失败时这段输出会进 annotation ⇒ 不必再等 actions:read 才能看到原因。
+          python3 -c "import json;d=json.load(open('trivy-web.json'));h=[(v.get('Severity'),v.get('VulnerabilityID'),v.get('PkgName'),v.get('InstalledVersion'),v.get('FixedVersion'),(r.get('Target') or '')[:28]) for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])];print('HITS=%d'%len(h));[print('  ',x) for x in h[:25]]"
+          if python3 -c "import json,sys;d=json.load(open('trivy-web.json'));sys.exit(0 if any(v.get('Severity') in ('CRITICAL','HIGH') for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])) else 1)"; then
+            echo "::error::前端镜像存在 CRITICAL/HIGH 漏洞（命中清单见上）"
+            exit 1
+          fi
       - name: 构建旧基础镜像样本
         uses: docker/build-push-action@v6
         with:
