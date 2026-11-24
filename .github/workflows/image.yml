@@ -124,7 +124,7 @@ jobs:
           labels: ${{ steps.meta-web.outputs.labels }}
 
       - name: Trivy 扫描后端镜像
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.short-sha.outputs.sha }}
           format: table
@@ -133,7 +133,7 @@ jobs:
           exit-code: "1"
 
       - name: Trivy 扫描前端镜像
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/web:sha-${{ steps.short-sha.outputs.sha }}
           format: table
@@ -142,7 +142,7 @@ jobs:
           exit-code: "1"
 
       - name: 生成 Trivy SARIF 报告
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.short-sha.outputs.sha }}
           format: sarif
@@ -238,7 +238,7 @@ jobs:
       # SARIF 先生成、后上传（if: always()），再跑带失败门禁的扫描：
       # 扫描发现漏洞导致作业失败时，报告仍已保存。
       - name: 生成 Trivy SARIF 报告（后端）
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
           format: sarif
@@ -248,7 +248,7 @@ jobs:
           exit-code: "0"
 
       - name: 生成 Trivy SARIF 报告（前端）
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
           format: sarif
@@ -266,7 +266,7 @@ jobs:
           retention-days: 30
 
       - name: Trivy 扫描后端镜像
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
           format: table
@@ -275,7 +275,7 @@ jobs:
           exit-code: "1"
 
       - name: Trivy 扫描前端镜像
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
           format: table
@@ -295,7 +295,7 @@ jobs:
       - name: Trivy 扫描旧基础镜像（预期失败）
         id: trivy-vuln
         continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           image-ref: vuln-base:fixture
           format: json
