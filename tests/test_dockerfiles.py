@@ -36,6 +36,35 @@ def from_lines(text: str) -> list[str]:
 # ---------------- 后端 Dockerfile ----------------
 
 
+def test_backend_setuptools_removed_after_copy_not_before():
+    # 第七轮 P0-3（合并版）：删除 setuptools/wheel 必须放在 COPY 之后——
+    # COPY 之前删，builder 装进 /install 的 setuptools 还会被 COPY 回来。
+    # builder 保留升级下限（setuptools>=82.0.0 / wheel>=0.46.2），
+    # runtime 在 COPY 之后删干净并用 find_spec 自证。
+    dockerfile = read("app/Dockerfile")
+    copy_pos = dockerfile.index("COPY --from=builder /install /usr/local")
+    rm_pos = dockerfile.index("rm -rf /usr/local/lib/python3.11/site-packages/setuptools")
+    assert rm_pos > copy_pos, "删除 setuptools 必须放在 COPY 之后"
+    assert "setuptools>=82.0.0" in dockerfile and "wheel>=0.46.2" in dockerfile, \
+        "builder 升级下限 setuptools>=82.0.0 / wheel>=0.46.2 须保留"
+    assert "--prefix=/tools" not in dockerfile, \
+        "合并版不走 /tools 隔离（COPY 后删已由 161 实测通过），不留死代码"
+    # COPY 之前的 groupadd 段里不许再有 rm（旧版的 pre-COPY 删法已作废）
+    assert "rm -rf" not in dockerfile[:copy_pos], "COPY 之前不许删 setuptools"
+
+
+def test_backend_runtime_has_no_setuptools_wheel():
+    # 第七轮 P1-2（合并版）：最终镜像里确实没有 setuptools / wheel——
+    # 用 find_spec 自证（比只看路径更强：import 不到才算真的不在），
+    # 且自证必须在 COPY 之后（COPY 之前 fastapi 还没装进来）。
+    dockerfile = read("app/Dockerfile")
+    copy_pos = dockerfile.index("COPY --from=builder /install /usr/local")
+    check_pos = dockerfile.index("find_spec('setuptools')")
+    assert check_pos > copy_pos, "无 setuptools 自证必须在 COPY 之后"
+    assert "find_spec('wheel') is None" in dockerfile, "须同时断言 wheel 不在镜像里"
+    assert "find_spec('setuptools') is None" in dockerfile, "须断言 setuptools 不在镜像里"
+
+
 def test_backend_multistage_and_pinned_base():
     text = read("app/Dockerfile")
     froms = from_lines(text)

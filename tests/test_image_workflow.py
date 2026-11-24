@@ -268,7 +268,46 @@ def test_web_smoke_nginx_config_start_health():
     assert "curl -fsS" in run, "健康检查须用 curl -fsS，失败即失败"
 
 
-def test_sarif_generated_before_gate_scans_and_always_uploaded():
+def test_reports_uploaded_after_json_scans_with_multiline_path():
+    # 第七轮 P0-1/P0-2：上传 path 必须是多行列表（两个 pattern 各占一行），
+    # 且上传须在 JSON 生成之后、门禁之前。旧写法把两行折成一个字符串
+    # "trivy-*.sarif trivy-*.json"，upload-artifact 找不到任何文件。
+    wf = load_workflow()
+    steps = wf["jobs"]["evidence"]["steps"]
+
+    def first(pred):
+        return next(i for i, s in enumerate(steps) if pred(s))
+
+    sarif_idx = first(lambda s: "--format sarif" in str(s.get("run", "")))
+    json_idx = first(lambda s: "--format json" in str(s.get("run", "")) and "trivy-" in str(s.get("run", "")))
+    upload_idx = first(lambda s: "upload-artifact" in str(s.get("uses", "")))
+    gate_idx = first(lambda s: str(s.get("name", "")).startswith("门禁"))
+    assert sarif_idx < json_idx < upload_idx < gate_idx, \
+        "顺序须是 SARIF 生成 → JSON 生成 → 上传 → 门禁断言"
+    # 两处上传的 path 都须是换行分隔的两个 pattern，不能是空格拼成的一个串
+    for job in ("build", "evidence"):
+        uploads = [s for s in wf["jobs"][job]["steps"] if "upload-artifact" in str(s.get("uses", ""))]
+        assert uploads, f"{job} 作业须有上传步骤"
+        path = str(uploads[0]["with"]["path"])
+        assert "trivy-*.sarif trivy-*.json" not in path, "path 不能是折叠成一个字符串的两个 pattern"
+        assert "trivy-*.sarif" in path and "trivy-*.json" in path, "path 须含 SARIF 与 JSON 两种报告"
+        assert "\n" in path, "path 须是 YAML 多行列表"
+    upload = steps[upload_idx]
+    assert str(upload.get("if", "")) == "always()", "上传须 if: always()，门禁失败时报告仍要保存"
+
+
+def test_gate_zero_hits_use_notice_not_error():
+    # 第七轮 P1-1：零命中时不能打 ::error:: 注解（否则每次都红），
+    # 有命中才用 ::error::。
+    wf = load_workflow()
+    steps = wf["jobs"]["evidence"]["steps"]
+    gates = [s for s in steps if str(s.get("name", "")).startswith("门禁")]
+    assert len(gates) == 2
+    for step in gates:
+        run = str(step.get("run", ""))
+        assert "::notice::" in run, "零命中须用 ::notice::"
+        assert "if not h else '::error::'" in run or 'if not h else "::error::"' in run, \
+            "有命中时才用 ::error::"
     # SARIF 须在带失败门禁的扫描之前生成，且上传步骤须 if: always()，
     # 否则扫描一失败报告就丢了。
     wf = load_workflow()

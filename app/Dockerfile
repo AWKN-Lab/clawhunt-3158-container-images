@@ -13,12 +13,12 @@ WORKDIR /build
 
 COPY app/requirements.txt .
 
-# 装完运行时依赖后**升级 setuptools 与 wheel**：
-# python:3.11-slim 自带 setuptools 79.0.1 / wheel 0.45.1，
-#   - setuptools 的 METADATA 依赖 jaraco.context 5.3.0（CVE-2026-23949 路径遍历，修复 6.1.0）
-#   - 系统 dist-packages 里的 wheel 0.45.1（CVE-2026-24049 提权，修复 0.46.2）
-# Trivy 扫的是 **METADATA 文件** ⇒ 实装版本升级了不够，**旧文件必须删**，
-# 否则镜像里仍留着可被判 HIGH 的 METADATA（门禁：CRITICAL/HIGH 即失败）。
+# 装完运行时依赖后**升级 setuptools 与 wheel**（下限保留）：
+# python:3.11-slim 自带 setuptools 79.0.1 / wheel 0.45.1。
+# 注意：升级本身不清旧文件——setuptools _vendor 里内嵌的旧版
+# jaraco.context 5.3.0 / wheel 0.45.1 的 dist-info（SARIF 实测）
+# 目录名与新版不同（jaraco.context- vs jaraco_context-），COPY 合并时
+# 旧文件不会被覆盖，留着就会被 Trivy 判 HIGH。旧文件在 COPY 之后删（见下）。
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
     && pip install --no-cache-dir --prefix=/install --upgrade "setuptools>=82.0.0" "wheel>=0.46.2"
 
@@ -38,16 +38,18 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 # 运行时**不需要** setuptools / wheel（只装 fastapi + uvicorn，都是 wheel 包）⇒ 整个移出镜像。
 # **必须放在 COPY 之后**：builder 阶段装进 /install 的 setuptools 会被 COPY 回来。
-# 原因：**Trivy 按 METADATA 的依赖声明判漏洞** —— setuptools 的 METADATA 写的是
-# `jaraco.context>=5.3.0`，Trivy 会按 **5.3.0** 判 CVE-2026-23949（HIGH），
-# **实装 84.2.1 也照样命中**；vendored 的 wheel-0.45.1.dist-info 又命中 CVE-2026-24049。
+# 删什么：基础镜像自带的 setuptools 79.0.1（_vendor 内嵌旧版 jaraco.context 5.3.0 /
+# wheel 0.45.1 的 dist-info，SARIF 实测）与 builder 装进 /install 的新版 setuptools/wheel；
+# 目录名与新版不同（jaraco.context- vs jaraco_context-），COPY 合并时旧文件不会被覆盖。
 RUN rm -rf /usr/local/lib/python3.11/site-packages/setuptools \
              /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
+             /usr/local/lib/python3.11/site-packages/wheel \
+             /usr/local/lib/python3.11/site-packages/wheel-*.dist-info \
              /usr/local/lib/python3.11/site-packages/pkg_resources \
              /usr/lib/python3/dist-packages/setuptools* \
              /usr/lib/python3/dist-packages/wheel* \
     && python3 -c "import fastapi, uvicorn; print('runtime deps ok | fastapi', fastapi.__version__)" \
-    && python3 -c "import importlib.util as u; assert u.find_spec('setuptools') is None; print('setuptools NOT in runtime image')"
+    && python3 -c "import importlib.util as u; assert u.find_spec('setuptools') is None and u.find_spec('wheel') is None; print('setuptools/wheel NOT in runtime image')"
 
 COPY --chown=app:app app/main.py ./main.py
 
