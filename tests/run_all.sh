@@ -8,7 +8,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p evidence
 
-VENV="${CH3158_VENV:-/tmp/ch3158-venv}"
+# venv 默认放**专用工作区**（不在 /tmp：会被清、且与别的项目混在一起分不清责任）
+WORKDIR="${CH3158_WORKDIR:-$HOME/clawhunt-work/venvs}"
+mkdir -p "$WORKDIR"
+VENV="${CH3158_VENV:-$WORKDIR/ch3158}"
 if [ ! -x "$VENV/bin/pytest" ]; then
     echo "creating venv at $VENV"
     python3 -m venv "$VENV"
@@ -25,8 +28,8 @@ if [ -z "${TRIVY:-}" ]; then
     fi
 fi
 
-echo "=== pytest：Dockerfile / .dockerignore / image.yml 静态核验 ==="
-"$VENV/bin/python" -m pytest tests/test_dockerfiles.py tests/test_image_workflow.py -v \
+echo "=== pytest：Dockerfile / .dockerignore / image.yml / terraform 静态核验（全部 34 项）==="
+"$VENV/bin/python" -m pytest tests/ -v \
     2>&1 | tee evidence/test-pytest.log
 test "${PIPESTATUS[0]}" -eq 0
 
