@@ -41,12 +41,16 @@ RUN groupadd -r app -g 10001 \
              /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
              /usr/local/lib/python3.11/site-packages/pkg_resources \
              /usr/lib/python3/dist-packages/setuptools* \
-             /usr/lib/python3/dist-packages/wheel* \
-    && python3 -c "import fastapi, uvicorn; print('runtime deps ok | fastapi', fastapi.__version__)"
+             /usr/lib/python3/dist-packages/wheel*
 
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
+# 构建期自证（放在 COPY 之后，此时 fastapi 才在镜像里）：
+#   ① 运行时依赖确实可用；② setuptools 的 METADATA 确实不在镜像里（Trivy 按 METADATA 判漏洞）。
+RUN python3 -c "import fastapi, uvicorn; print('runtime deps ok | fastapi', fastapi.__version__)" \
+    && python3 -c "import importlib.util as u; assert u.find_spec('setuptools') is None; print('setuptools NOT in runtime image')"
+
 COPY --chown=app:app app/main.py ./main.py
 
 USER app
