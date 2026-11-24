@@ -1,4 +1,4 @@
-INFO:     Started server process [2087]
+INFO:     Started server process [9858]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
@@ -11,4 +11,4 @@ BACKEND-LOCAL PASS
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-INFO:     Finished server process [2087]
+INFO:     Finished server process [9858]

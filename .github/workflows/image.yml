@@ -15,8 +15,9 @@
 # 回滚：镜像按 SHA 标签不可覆盖（ACR 侧开启标签不可变，见 README），
 # 部署回滚直接指向上一个 SHA 标签；ACR 侧保留最近 30 个版本。
 #
-# 未完成项（无客户凭证、无 docker 构建环境，本机无法执行，见 README）：
-# 实际推送、Trivy 对真实镜像的扫描、ACR 命名空间/仓库的 Terraform 创建。
+# 未完成项：实际推送到客户 ACR、ACR 命名空间/仓库的 Terraform 创建
+# （terraform/ 已写好草稿，须客户确认版本与命名空间名后执行）。
+# 验收证据由 evidence 作业在 GHCR 上出，不依赖客户凭证。
 
 name: image
 
@@ -36,6 +37,9 @@ env:
 
 jobs:
   build:
+    # 客户 ACR 未配置时跳过：推送目标不存在，构建会失败；
+    # 验收证据由 evidence 作业在 GHCR 上出，不依赖客户凭证。
+    if: ${{ vars.ACR_REGISTRY != '' && vars.ACR_NAMESPACE != '' }}
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -145,3 +149,198 @@ jobs:
           name: trivy-reports
           path: trivy-*.sarif
           retention-days: 30
+
+  evidence:
+    # 验收证据作业：不依赖客户凭证；构建、运行、扫描全在 CI 里做，
+    # 镜像推到 GHCR（短 SHA 标签，永不用 latest），供验收 3 核查。
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 计算短 SHA
+        id: short-sha
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: 登录 GHCR（仅 push 事件）
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建后端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: app/Dockerfile
+          push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
+
+      - name: 构建前端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: web/Dockerfile
+          push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+
+      - name: 验收 1：容器内 whoami 输出 app
+        run: |
+          out="$(docker run --rm ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }} whoami)"
+          echo "whoami=$out"
+          test "$out" = "app"
+
+      - name: 验收 2：镜像内无 .env 与 .git
+        run: |
+          set -euo pipefail
+          docker run --rm ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }} sh -c 'test ! -e /app/.env && test ! -d /app/.git && echo backend-clean'
+          docker run --rm ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }} sh -c 'test ! -e /usr/share/nginx/html/.env && echo web-clean'
+          check_layers() {
+            local image="$1"
+            local work
+            work="$(mktemp -d)"
+            trap 'rm -rf "$work"' RETURN
+            docker save "$image" | tar -x -C "$work"
+            local layers=( "$work"/*/layer.tar )
+            [ -f "${layers[0]}" ] || { echo "::error::$image 未发现任何镜像层"; exit 1; }
+            local found=0
+            for layer in "${layers[@]}"; do
+              [ -f "$layer" ] || continue
+              local layerdir="$work/layer"
+              rm -rf "$layerdir"; mkdir -p "$layerdir"
+              tar -x -f "$layer" -C "$layerdir"
+              if find "$layerdir" \( -type f -name '.env' -o -type f -name '.env.*' -o -type d -name '.env' -o -type d -name '.env.*' -o -type d -name '.git' \) -print -quit | grep -q .; then
+                echo "::error::$image 镜像层内发现 .env 或 .git"
+                found=1
+              fi
+            done
+            [ "$found" -eq 0 ] || exit 1
+            echo "$image layers clean"
+          }
+          check_layers ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
+          check_layers ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+
+      # SARIF 先生成、后上传（if: always()），再跑带失败门禁的扫描：
+      # 扫描发现漏洞导致作业失败时，报告仍已保存。
+      - name: 生成 Trivy SARIF 报告（后端）
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: 生成 Trivy SARIF 报告（前端）
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+          format: sarif
+          output: trivy-web.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: 上传 Trivy 报告与证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports-evidence
+          path: trivy-*.sarif
+          retention-days: 30
+
+      - name: Trivy 扫描后端镜像
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Trivy 扫描前端镜像
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: 构建旧基础镜像样本
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tests/fixtures/Dockerfile.vuln-base
+          push: false
+          load: true
+          tags: vuln-base:fixture
+
+      - name: Trivy 扫描旧基础镜像（预期失败）
+        id: trivy-vuln
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: vuln-base:fixture
+          format: json
+          output: trivy-vuln.json
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: 断言旧基础镜像确实被拦截
+        run: |
+          set -euo pipefail
+          test "${{ steps.trivy-vuln.outcome }}" = "failure" || { echo "::error::旧基础镜像未被 Trivy 拦截"; exit 1; }
+          test -s trivy-vuln.json || { echo "::error::未生成扫描报告，可能是数据库下载失败"; exit 1; }
+          grep -q '"Severity": "CRITICAL"' trivy-vuln.json || { echo "::error::报告里没有 CRITICAL 漏洞，拦截不可信"; exit 1; }
+          echo "vuln-base blocked by Trivy: ok"
+
+      - name: 验收 3：GHCR 仓库无 latest 标签（仅 push 事件）
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for repo in clawhunt-3158-backend clawhunt-3158-web; do
+            versions="$(gh api --paginate "orgs/${{ github.repository_owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]')"
+            test -n "$versions" || { echo "::error::$repo 在 GHCR 上没有版本"; exit 1; }
+            echo "$repo tags:"
+            printf '%s\n' "$versions"
+            printf '%s\n' "$versions" | grep -qx 'latest' && { echo "::error::$repo 存在 latest 标签"; exit 1; }
+          done
+          echo "no latest tag on GHCR: ok"
+
+  terraform:
+    # Terraform 独立 CI：格式、初始化（不连后端）、校验。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.2
+
+      - name: terraform fmt 检查
+        run: terraform fmt -check -diff
+
+      - name: terraform init（不连后端）
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        env:
+          TF_VAR_edition: Personal
+        run: terraform validate

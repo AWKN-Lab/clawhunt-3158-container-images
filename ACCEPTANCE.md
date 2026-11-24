@@ -17,8 +17,8 @@
   已本地实测跑通（`evidence/test-backend-local.log`，`/healthz` 返回
   `{"status":"ok"}`）。
 
-补齐：在有 docker 的环境跑
-`docker run --rm <registry>/<ns>/backend:sha-<短 SHA> whoami`，输出应为 `app`。
+补齐：CI `evidence` 作业跑 `docker run --rm <GHCR 镜像> whoami` 并断言输出 `app`；
+首次 CI 绿后以该作业日志为准。
 
 ## 验收 2：解包检查镜像中不存在 `.env` 文件与 `.git` 目录（附命令输出）
 
@@ -34,9 +34,8 @@
 - `.dockerignore` 含范围要求的四项：`.env*`、`.git`、`tests/fixtures`、
   `node_modules`。
 
-补齐：构建出镜像后跑
-`docker run --rm <backend 镜像> sh -c 'ls -a /app; test ! -e /app/.env && echo no-env'`
-与 `docker save … | tar -t | grep -E '(\.env|\.git)'`，应无输出。
+补齐：CI `evidence` 作业逐层解包两个镜像（`docker save` 后逐个解 `layer.tar`，
+`set -euo pipefail`）并检查 `.env` / `.env.*` / `.git`；首次 CI 绿后以该作业日志为准。
 
 ## 验收 3：仓库中镜像标签为短 SHA 或版本号，不存在 `latest` 标签
 
@@ -51,9 +50,8 @@
   与 metadata-action 的短 SHA 生成规则一致（已修掉一次
   全量 SHA 引用错误）。
 
-补齐：首次推送后在客户 ACR 控制台（或 `docker buildx imagetools inspect`
-等）核查 `backend`、`web` 两仓库的标签列表，确认无 `latest`；
-截图补进 `evidence/`。
+补齐：CI `evidence` 作业用 GitHub REST Packages API 查 GHCR 两仓库的全部标签，
+有 `latest` 即失败；首次 CI 绿后以该作业日志为准。
 
 ## 验收 4：换成含 CRITICAL 漏洞的旧基础镜像时 Trivy 步骤失败
 
@@ -71,8 +69,8 @@
 - 触发样本：`tests/fixtures/Dockerfile.vuln-base`
  （`FROM python:3.7-slim`，2023-06-27 已 EOL，带未修复 CVE）。
 
-补齐：在有 docker 的环境把后端 `FROM` 换成 `python:3.7-slim` 后
-重新构建并跑工作流，Trivy 步骤应失败；再换回 `python:3.11-slim`。
+补齐：CI `evidence` 作业构建 `tests/fixtures/Dockerfile.vuln-base` 并用 Trivy 扫描，
+须同时满足退出码失败与报告里含 CRITICAL；首次 CI 绿后以该作业日志为准。
 
 ## 附加验证（超出验收标准，实测发现并修掉的问题）
 
@@ -84,4 +82,4 @@
    metadata-action 生成的短 SHA 标签对不上。已修复：加
    `short-sha` 步骤取 `${GITHUB_SHA::7}`，三处 Trivy 引用统一用它。
 3. 本地总跑 `tests/run_all.sh`：**ALL PASS**
-   （pytest 20 passed；后端本地实测、前端构建实测、Trivy 本地实测全过）。
+   （pytest 30 passed；后端本地实测、前端构建实测、Trivy 本地实测全过）。
