@@ -290,7 +290,7 @@ jobs:
           set -euo pipefail
           # **先出报告再断言**：退出码之外，把命中清单打印出来 ——
           # 失败时这段输出会进 annotation ⇒ 不必再等 actions:read 才能看到原因。
-          python3 -c "import json;d=json.load(open('trivy-backend.json'));h=[(v.get('Severity'),v.get('VulnerabilityID'),v.get('PkgName'),v.get('InstalledVersion'),v.get('FixedVersion'),(r.get('Target') or '')[:28]) for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])];print('HITS=%d'%len(h));[print('  ',x) for x in h[:25]]"
+          python3 -c "import json;d=json.load(open('trivy-backend.json'));h=[(v.get('Severity'),v.get('VulnerabilityID'),v.get('PkgName'),v.get('InstalledVersion'),v.get('FixedVersion'),(r.get('Target') or '')[:28]) for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])];print('::error::HITS=%d'%len(h));[print('::error::  %s %s %s %s -> %s @%s'%(x[0],x[1],x[2],x[3],x[4],x[5])) for x in h[:25]]"
           if python3 -c "import json,sys;d=json.load(open('trivy-backend.json'));sys.exit(0 if any(v.get('Severity') in ('CRITICAL','HIGH') for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])) else 1)"; then
             echo "::error::后端镜像存在 CRITICAL/HIGH 漏洞（命中清单见上）"
             exit 1
@@ -308,7 +308,7 @@ jobs:
           set -euo pipefail
           # **先出报告再断言**：退出码之外，把命中清单打印出来 ——
           # 失败时这段输出会进 annotation ⇒ 不必再等 actions:read 才能看到原因。
-          python3 -c "import json;d=json.load(open('trivy-web.json'));h=[(v.get('Severity'),v.get('VulnerabilityID'),v.get('PkgName'),v.get('InstalledVersion'),v.get('FixedVersion'),(r.get('Target') or '')[:28]) for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])];print('HITS=%d'%len(h));[print('  ',x) for x in h[:25]]"
+          python3 -c "import json;d=json.load(open('trivy-web.json'));h=[(v.get('Severity'),v.get('VulnerabilityID'),v.get('PkgName'),v.get('InstalledVersion'),v.get('FixedVersion'),(r.get('Target') or '')[:28]) for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])];print('::error::HITS=%d'%len(h));[print('::error::  %s %s %s %s -> %s @%s'%(x[0],x[1],x[2],x[3],x[4],x[5])) for x in h[:25]]"
           if python3 -c "import json,sys;d=json.load(open('trivy-web.json'));sys.exit(0 if any(v.get('Severity') in ('CRITICAL','HIGH') for r in (d.get('Results') or []) for v in (r.get('Vulnerabilities') or [])) else 1)"; then
             echo "::error::前端镜像存在 CRITICAL/HIGH 漏洞（命中清单见上）"
             exit 1
