@@ -221,25 +221,31 @@ jobs:
           docker run --rm ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }} sh -c 'test ! -e /usr/share/nginx/html/.env && echo web-clean'
           check_layers() {
             local image="$1"
-            local work
+            local work layerdir
             work="$(mktemp -d)"
-            trap 'rm -rf "$work"' RETURN
+            layerdir="$work/unpacked"
+            # 归档格式有两种，**都要兼容**：
+            #   docker-archive（旧）：<hash>/layer.tar
+            #   OCI（buildx 推送的默认格式）：blobs/sha256/<digest>（层是无扩展名的 tar）
+            # 只认前一种 ⇒ 在 buildx 推的镜像上会误判成"未发现任何镜像层"。
             docker save "$image" | tar -x -C "$work"
-            local layers=( "$work"/*/layer.tar )
-            [ -f "${layers[0]}" ] || { echo "::error::$image 未发现任何镜像层"; exit 1; }
-            local found=0
-            for layer in "${layers[@]}"; do
-              [ -f "$layer" ] || continue
-              local layerdir="$work/layer"
-              rm -rf "$layerdir"; mkdir -p "$layerdir"
-              tar -x -f "$layer" -C "$layerdir"
-              if find "$layerdir" \( -type f -name '.env' -o -type f -name '.env.*' -o -type d -name '.env' -o -type d -name '.env.*' -o -type d -name '.git' \) -print -quit | grep -q .; then
-                echo "::error::$image 镜像层内发现 .env 或 .git"
+            local found=0 unpacked=0
+            while IFS= read -r layer; do
+              rm -rf "${layerdir:?}"/* 2>/dev/null || true
+              mkdir -p "$layerdir"
+              # 非 tar 成员（OCI 的 config json）解包会失败 ⇒ 跳过，不算层
+              tar -x -f "$layer" -C "$layerdir" 2>/dev/null || continue
+              [ -n "$(ls -A "$layerdir" 2>/dev/null)" ] || continue
+              unpacked=$((unpacked+1))
+              if find "$layerdir" \( -name '.env' -o -name '.env.*' -o -name '.git' \) -print -quit | grep -q .; then
+                echo "::error::$image 镜像层 $layer 内发现 .env 或 .git"
                 found=1
               fi
-            done
+            done < <(find "$work" -type f \( -name 'layer.tar' -o -path '*/blobs/sha256/*' \) 2>/dev/null)
+            rm -rf "$work"
+            [ "$unpacked" -gt 0 ] || { echo "::error::$image 未发现任何可解包的镜像层"; exit 1; }
             [ "$found" -eq 0 ] || exit 1
-            echo "$image layers clean"
+            echo "$image layers clean (解包 $unpacked 层)"
           }
           check_layers ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}
           check_layers ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}
