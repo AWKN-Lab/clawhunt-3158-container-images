@@ -128,32 +128,44 @@ jobs:
           labels: ${{ steps.meta-web.outputs.labels }}
 
       - name: Trivy 扫描后端镜像
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.ctx.outputs.sha }}
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.ctx.outputs.sha }}"
+          docker pull "$IMAGE"
+          docker save "$IMAGE" -o image.tar
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
+            --format table --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+          rm -f image.tar
 
       - name: Trivy 扫描前端镜像
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/web:sha-${{ steps.ctx.outputs.sha }}
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/web:sha-${{ steps.ctx.outputs.sha }}"
+          docker pull "$IMAGE"
+          docker save "$IMAGE" -o image.tar
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
+            --format table --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+          rm -f image.tar
 
       - name: 生成 Trivy SARIF 报告
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.ctx.outputs.sha }}
-          format: sarif
-          output: trivy-backend.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "0"
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.ctx.outputs.sha }}"
+          docker pull "$IMAGE"
+          docker save "$IMAGE" -o image.tar
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
+            --format sarif --output trivy-backend.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed --exit-code 0
+          rm -f image.tar
 
       - name: 上传 Trivy 报告
         uses: actions/upload-artifact@v4
@@ -253,24 +265,30 @@ jobs:
       # SARIF 先生成、后上传（if: always()），再跑带失败门禁的扫描：
       # 扫描发现漏洞导致作业失败时，报告仍已保存。
       - name: 生成 Trivy SARIF 报告（后端）
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}
-          format: sarif
-          output: trivy-backend.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "0"
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}"
+          docker save "$IMAGE" -o image.tar
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar \
+            --format sarif --output trivy-backend.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed --exit-code 0
+          rm -f image.tar
 
       - name: 生成 Trivy SARIF 报告（前端）
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}
-          format: sarif
-          output: trivy-web.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "0"
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}"
+          docker save "$IMAGE" -o image.tar
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar \
+            --format sarif --output trivy-web.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed --exit-code 0
+          rm -f image.tar
 
       - name: 上传 Trivy 报告与证据
         if: always()
@@ -281,22 +299,28 @@ jobs:
           retention-days: 30
 
       - name: Trivy 扫描后端镜像
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}"
+          docker save "$IMAGE" -o image.tar
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
+            --format table --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+          rm -f image.tar
 
       - name: Trivy 扫描前端镜像
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}
-          format: table
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}"
+          docker save "$IMAGE" -o image.tar
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
+            --format table --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
+          rm -f image.tar
 
       - name: 构建旧基础镜像样本
         uses: docker/build-push-action@v6
@@ -310,14 +334,20 @@ jobs:
       - name: Trivy 扫描旧基础镜像（预期失败）
         id: trivy-vuln
         continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          image-ref: vuln-base:fixture
-          format: json
-          output: trivy-vuln.json
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          set -uo pipefail
+          docker save vuln-base:fixture -o vuln.tar
+          set +e
+          docker run --rm --network host \
+            -v "$PWD:/work" -v trivy-cache:/root/.cache/trivy -w /work \
+            -e TRIVY_DB_REPOSITORY=ghcr.io/aquasecurity/trivy-db \
+            ghcr.io/aquasecurity/trivy:0.76.1 image --input /work/image.tar
+            --format json --output trivy-vuln.json --severity CRITICAL --ignore-unfixed --exit-code 1
+          rc=$?
+          set -e
+          rm -f vuln.tar
+          echo "vuln-base trivy exit=$rc"
+          exit "$rc"
 
       - name: 断言旧基础镜像确实被拦截
         run: |

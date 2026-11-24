@@ -13,7 +13,11 @@ WORKDIR /build
 
 COPY app/requirements.txt .
 
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# 装完运行时依赖后**升级 setuptools**：python:3.11-slim 自带 setuptools 79.0.1，
+# 其 METADATA 依赖 jaraco.context 5.3.0（CVE-2026-23949 路径遍历，修复版 6.1.0）⇒
+# Trivy 会判 HIGH。升级到 setuptools≥80.9.0（带 jaraco.context≥6.1.0）即可消除。
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    && pip install --no-cache-dir --prefix=/install --upgrade "setuptools>=80.9.0"
 
 # ---------- runtime：非 root 运行，只含运行所需文件 ----------
 FROM python:3.11-slim AS runtime
