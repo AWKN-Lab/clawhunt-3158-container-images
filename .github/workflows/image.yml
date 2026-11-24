@@ -99,9 +99,13 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: 计算短 SHA（与 metadata-action 的 type=sha,format=short 一致）
-        id: short-sha
-        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: 计算短 SHA 与小写 owner
+        id: ctx
+        # owner 必须小写（Docker 仓库名不允许大写）；GitHub 表达式没有 lower()，
+        # 用 bash 的 ${VAR,,} 转小写。sha 显式取前 7 位，避免 ${VAR::n} 的语义歧义。
+        run: |
+          echo "sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
       - name: 构建并推送后端镜像
         uses: docker/build-push-action@v6
@@ -126,7 +130,7 @@ jobs:
       - name: Trivy 扫描后端镜像
         uses: aquasecurity/trivy-action@v0.31.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.short-sha.outputs.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.ctx.outputs.sha }}
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -135,7 +139,7 @@ jobs:
       - name: Trivy 扫描前端镜像
         uses: aquasecurity/trivy-action@v0.31.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/web:sha-${{ steps.short-sha.outputs.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/web:sha-${{ steps.ctx.outputs.sha }}
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -144,7 +148,7 @@ jobs:
       - name: 生成 Trivy SARIF 报告
         uses: aquasecurity/trivy-action@v0.31.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.short-sha.outputs.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:sha-${{ steps.ctx.outputs.sha }}
           format: sarif
           output: trivy-backend.sarif
           severity: CRITICAL,HIGH
@@ -169,9 +173,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 计算短 SHA
-        id: short-sha
-        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: 计算短 SHA 与小写 owner
+        id: ctx
+        # **owner 必须小写**：Docker 仓库名不允许大写字母
+        # （实测：ghcr.io/AWKN-Lab/... ⇒ "repository name must be lowercase" ⇒ 构建失败）。
+        # GitHub 表达式没有 lower()，用 bash 的 ${VAR,,} 转小写。
+        run: |
+          echo "sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
       - name: 登录 GHCR（仅 push 事件）
         if: github.event_name == 'push'
@@ -188,7 +197,7 @@ jobs:
           file: app/Dockerfile
           push: ${{ github.event_name == 'push' }}
           load: ${{ github.event_name == 'pull_request' }}
-          tags: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
+          tags: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}
 
       - name: 构建前端镜像
         uses: docker/build-push-action@v6
@@ -197,19 +206,19 @@ jobs:
           file: web/Dockerfile
           push: ${{ github.event_name == 'push' }}
           load: ${{ github.event_name == 'pull_request' }}
-          tags: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+          tags: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}
 
       - name: 验收 1：容器内 whoami 输出 app
         run: |
-          out="$(docker run --rm ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }} whoami)"
+          out="$(docker run --rm ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }} whoami)"
           echo "whoami=$out"
           test "$out" = "app"
 
       - name: 验收 2：镜像内无 .env 与 .git
         run: |
           set -euo pipefail
-          docker run --rm ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }} sh -c 'test ! -e /app/.env && test ! -d /app/.git && echo backend-clean'
-          docker run --rm ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }} sh -c 'test ! -e /usr/share/nginx/html/.env && echo web-clean'
+          docker run --rm ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }} sh -c 'test ! -e /app/.env && test ! -d /app/.git && echo backend-clean'
+          docker run --rm ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }} sh -c 'test ! -e /usr/share/nginx/html/.env && echo web-clean'
           check_layers() {
             local image="$1"
             local work
@@ -232,15 +241,15 @@ jobs:
             [ "$found" -eq 0 ] || exit 1
             echo "$image layers clean"
           }
-          check_layers ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
-          check_layers ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+          check_layers ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}
+          check_layers ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}
 
       # SARIF 先生成、后上传（if: always()），再跑带失败门禁的扫描：
       # 扫描发现漏洞导致作业失败时，报告仍已保存。
       - name: 生成 Trivy SARIF 报告（后端）
         uses: aquasecurity/trivy-action@v0.31.0
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
+          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}
           format: sarif
           output: trivy-backend.sarif
           severity: CRITICAL,HIGH
@@ -250,7 +259,7 @@ jobs:
       - name: 生成 Trivy SARIF 报告（前端）
         uses: aquasecurity/trivy-action@v0.31.0
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}
           format: sarif
           output: trivy-web.sarif
           severity: CRITICAL,HIGH
@@ -268,7 +277,7 @@ jobs:
       - name: Trivy 扫描后端镜像
         uses: aquasecurity/trivy-action@v0.31.0
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-backend:sha-${{ steps.short-sha.outputs.sha }}
+          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -277,7 +286,7 @@ jobs:
       - name: Trivy 扫描前端镜像
         uses: aquasecurity/trivy-action@v0.31.0
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/clawhunt-3158-web:sha-${{ steps.short-sha.outputs.sha }}
+          image-ref: ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -319,7 +328,7 @@ jobs:
         run: |
           set -euo pipefail
           for repo in clawhunt-3158-backend clawhunt-3158-web; do
-            versions="$(gh api --paginate "orgs/${{ github.repository_owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]')"
+            versions="$(gh api --paginate "orgs/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]')"
             test -n "$versions" || { echo "::error::$repo 在 GHCR 上没有版本"; exit 1; }
             echo "$repo tags:"
             printf '%s\n' "$versions"
