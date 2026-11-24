@@ -13,11 +13,14 @@ WORKDIR /build
 
 COPY app/requirements.txt .
 
-# 装完运行时依赖后**升级 setuptools**：python:3.11-slim 自带 setuptools 79.0.1，
-# 其 METADATA 依赖 jaraco.context 5.3.0（CVE-2026-23949 路径遍历，修复版 6.1.0）⇒
-# Trivy 会判 HIGH。升级到 setuptools≥80.9.0（带 jaraco.context≥6.1.0）即可消除。
+# 装完运行时依赖后**升级 setuptools 与 wheel**：
+# python:3.11-slim 自带 setuptools 79.0.1 / wheel 0.45.1，
+#   - setuptools 的 METADATA 依赖 jaraco.context 5.3.0（CVE-2026-23949 路径遍历，修复 6.1.0）
+#   - 系统 dist-packages 里的 wheel 0.45.1（CVE-2026-24049 提权，修复 0.46.2）
+# Trivy 扫的是 **METADATA 文件** ⇒ 实装版本升级了不够，**旧文件必须删**，
+# 否则镜像里仍留着可被判 HIGH 的 METADATA（门禁：CRITICAL/HIGH 即失败）。
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
-    && pip install --no-cache-dir --prefix=/install --upgrade "setuptools>=80.9.0"
+    && pip install --no-cache-dir --prefix=/install --upgrade "setuptools>=80.9.0" "wheel>=0.46.2"
 
 # ---------- runtime：非 root 运行，只含运行所需文件 ----------
 FROM python:3.11-slim AS runtime
@@ -28,7 +31,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN groupadd -r app -g 10001 \
     && useradd -r -u 10001 -g app app \
     && mkdir -p /app \
-    && chown app:app /app
+    && chown app:app /app \
+    # 删掉基础镜像自带的旧 setuptools / wheel（它们的 METADATA 带已知 HIGH 漏洞），
+    # 运行时只用 /usr/local 下 builder 装的新版（setuptools>=80.9.0 / wheel>=0.46.2）。
+    && rm -rf /usr/lib/python3/dist-packages/setuptools* /usr/lib/python3/dist-packages/wheel* \
+    && python3 -c "import setuptools, wheel; print('setuptools', setuptools.__version__, '| wheel', wheel.__version__)"
 
 WORKDIR /app
 

@@ -17,7 +17,7 @@ TDesign；配置与密钥只从环境变量读取；只用虚构测试数据。
 | `app/Dockerfile` | 后端镜像：多阶段，`python:3.11-slim`；runtime 以非 root 用户 `app` 运行；暴露 8000；HEALTHCHECK 探活 `/healthz` |
 | `app/main.py` | 后端最小桩：只提供 `/healthz` 与根路径占位，真实后端替换本文件即可 |
 | `app/requirements.txt` | 后端桩依赖（fastapi 0.165.0、uvicorn 0.54.0，已 pin） |
-| `web/Dockerfile` | 前端镜像：`node:22-alpine` 构建 + `nginx:1.27-alpine` 托管静态文件 |
+| `web/Dockerfile` | 前端镜像：`node:22-alpine` 构建 + `nginx:1.29-alpine` 托管静态文件 |
 | `web/nginx.conf` | gzip 开启；SPA 路由回退 `index.html`；`/healthz` 探活 |
 | `web/package.json` / `web/scripts/build.mjs` / `web/public/index.html` | 前端最小构建桩（真实前端替换 `public/` 与构建脚本即可） |
 | `.dockerignore` | 排除 `.env*`、`.git`、`tests/fixtures`、`node_modules` 等 |
@@ -33,7 +33,7 @@ TDesign；配置与密钥只从环境变量读取；只用虚构测试数据。
 |---|---|
 | `python:3.11-slim` | `sha256:b701198cb708…` |
 | `node:22-alpine` | `sha256:12f54cafa58d…` |
-| `nginx:1.27-alpine` | `sha256:62223d644fa2…` |
+| `nginx:1.29-alpine` | `sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de…` |
 
 ## 端口
 
