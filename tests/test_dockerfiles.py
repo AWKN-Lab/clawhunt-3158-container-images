@@ -108,6 +108,19 @@ def test_web_multistage_and_pinned_base():
 
 
 def test_web_non_root_and_port():
+    # 非 root 运行：USER nginx、只听 8080。
+    # nginx 的 pid 文件在 /run/nginx.pid（主配置），Alpine 里 /var/run
+    # 是指向 /run 的符号链接——`chown -R /var/run` 只改链接本身，
+    # 必须直接 chown 真实目录 /run，否则 nginx -t 写 pid 会 Permission denied
+    #（首次 CI 实证 run 45428355594）。
+    dockerfile = read("web/Dockerfile")
+    assert "USER nginx" in dockerfile
+    assert "EXPOSE 8080" in dockerfile
+    assert "chown -R nginx:nginx" in dockerfile
+    assert "/run" in dockerfile and "chown nginx:nginx /run" in dockerfile, \
+        "须直接 chown 真实目录 /run，不能只 chown 符号链接 /var/run"
+    assert "chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run" not in dockerfile, \
+        "/run 只须非递归 chown（第九轮：nginx 只在 /run 里建一个 pid 文件）"
     text = read("web/Dockerfile")
     assert re.search(r"^USER nginx$", text, re.M)
     assert "EXPOSE 8080" in text, "非 root 绑不了 80，改听 8080（部署层映射）"

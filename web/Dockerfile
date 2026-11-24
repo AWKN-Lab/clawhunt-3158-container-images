@@ -24,9 +24,15 @@ RUN npm run build
 FROM nginx:1.30-alpine AS runtime
 
 # 非 root 运行：nginx 以 nginx 用户启动，须改听 8080（<1024 端口非 root 绑不了），
-# 并把 nginx 要写的缓存、运行、日志目录 chown 给 nginx 用户
-RUN mkdir -p /var/cache/nginx /var/run /var/log/nginx \
-    && chown -R nginx:nginx /var/cache/nginx /var/run /var/log/nginx
+# 并把 nginx 要写的缓存、运行、日志目录 chown 给 nginx 用户。
+# 注意：Alpine 里 /var/run 是指向 /run 的符号链接，`chown -R /var/run`
+# 只改链接本身，不改 /run——nginx 写 /run/nginx.pid 会 Permission denied
+#（首次 CI 实证：run 45428355594，前端冒烟 nginx -t 挂在这一步）。
+# 所以直接 chown 真实目录 /run；且 /run 只须非递归 chown——nginx 只在
+# /run 里创建一个 pid 文件，不需要递归改 /run 下所有内容（第九轮复核）。
+RUN mkdir -p /var/cache/nginx /var/log/nginx /run \
+    && chown -R nginx:nginx /var/cache/nginx /var/log/nginx \
+    && chown nginx:nginx /run
 
 COPY web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder --chown=nginx:nginx /build/dist /usr/share/nginx/html
