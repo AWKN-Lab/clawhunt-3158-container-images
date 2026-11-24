@@ -31,24 +31,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN groupadd -r app -g 10001 \
     && useradd -r -u 10001 -g app app \
     && mkdir -p /app \
-    && chown app:app /app \
-    # 运行时**不需要** setuptools / wheel（只装 fastapi + uvicorn，都是 wheel 包）⇒ 整个移出镜像。
-    # 原因：**Trivy 按 METADATA 的依赖声明判漏洞** —— setuptools 的 METADATA 里写的是
-    # `jaraco.context>=5.3.0`，Trivy 会按 **5.3.0** 判 CVE-2026-23949（HIGH），
-    # **无论实装哪个版本都会命中**；vendored 的 wheel-0.45.1.dist-info 还会命中 CVE-2026-24049。
-    # ⇒ 唯一干净解：让镜像里**没有 setuptools 的 METADATA**（构建期工具链不留在 runtime）。
-    && rm -rf /usr/local/lib/python3.11/site-packages/setuptools \
-             /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
-             /usr/local/lib/python3.11/site-packages/pkg_resources \
-             /usr/lib/python3/dist-packages/setuptools* \
-             /usr/lib/python3/dist-packages/wheel*
+    && chown app:app /app
 
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
-# 构建期自证（放在 COPY 之后，此时 fastapi 才在镜像里）：
-#   ① 运行时依赖确实可用；② setuptools 的 METADATA 确实不在镜像里（Trivy 按 METADATA 判漏洞）。
-RUN python3 -c "import fastapi, uvicorn; print('runtime deps ok | fastapi', fastapi.__version__)" \
+# 运行时**不需要** setuptools / wheel（只装 fastapi + uvicorn，都是 wheel 包）⇒ 整个移出镜像。
+# **必须放在 COPY 之后**：builder 阶段装进 /install 的 setuptools 会被 COPY 回来。
+# 原因：**Trivy 按 METADATA 的依赖声明判漏洞** —— setuptools 的 METADATA 写的是
+# `jaraco.context>=5.3.0`，Trivy 会按 **5.3.0** 判 CVE-2026-23949（HIGH），
+# **实装 84.2.1 也照样命中**；vendored 的 wheel-0.45.1.dist-info 又命中 CVE-2026-24049。
+RUN rm -rf /usr/local/lib/python3.11/site-packages/setuptools \
+             /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
+             /usr/local/lib/python3.11/site-packages/pkg_resources \
+             /usr/lib/python3/dist-packages/setuptools* \
+             /usr/lib/python3/dist-packages/wheel* \
+    && python3 -c "import fastapi, uvicorn; print('runtime deps ok | fastapi', fastapi.__version__)" \
     && python3 -c "import importlib.util as u; assert u.find_spec('setuptools') is None; print('setuptools NOT in runtime image')"
 
 COPY --chown=app:app app/main.py ./main.py
