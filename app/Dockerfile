@@ -20,7 +20,7 @@ COPY app/requirements.txt .
 # Trivy 扫的是 **METADATA 文件** ⇒ 实装版本升级了不够，**旧文件必须删**，
 # 否则镜像里仍留着可被判 HIGH 的 METADATA（门禁：CRITICAL/HIGH 即失败）。
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
-    && pip install --no-cache-dir --prefix=/install --upgrade "setuptools>=80.9.0" "wheel>=0.46.2"
+    && pip install --no-cache-dir --prefix=/install --upgrade "setuptools>=82.0.0" "wheel>=0.46.2"
 
 # ---------- runtime：非 root 运行，只含运行所需文件 ----------
 FROM python:3.11-slim AS runtime

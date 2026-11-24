@@ -214,6 +214,34 @@ jobs:
           echo "whoami=$out"
           test "$out" = "app"
 
+      - name: 前端冒烟：nginx 配置、启动与健康检查
+        run: |
+          set -euo pipefail
+          WEB="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-web:sha-${{ steps.ctx.outputs.sha }}"
+          docker run --rm "$WEB" nginx -t
+          docker run --rm "$WEB" nginx -v
+          docker run -d --name web-smoke -p 127.0.0.1:18080:8080 "$WEB"
+          trap 'docker rm -f web-smoke >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:18080/healthz" && break || sleep 1
+          done
+          curl -fsS "http://127.0.0.1:18080/healthz"
+          docker rm -f web-smoke
+          trap - EXIT
+
+      - name: 后端冒烟：uvicorn 启动与健康检查
+        run: |
+          set -euo pipefail
+          BACKEND="ghcr.io/${{ steps.ctx.outputs.owner }}/clawhunt-3158-backend:sha-${{ steps.ctx.outputs.sha }}"
+          docker run -d --name backend-smoke -p 127.0.0.1:18081:8000 "$BACKEND"
+          trap 'docker rm -f backend-smoke >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:18081/healthz" && break || sleep 1
+          done
+          curl -fsS "http://127.0.0.1:18081/healthz"
+          docker rm -f backend-smoke
+          trap - EXIT
+
       - name: 验收 2：镜像内无 .env 与 .git
         run: |
           set -euo pipefail
@@ -353,8 +381,8 @@ jobs:
           for repo in clawhunt-3158-backend clawhunt-3158-web; do
             # owner 是**用户账号**（实测 /users/AWKN-Lab → 200、/orgs/AWKN-Lab → 404），
             # GHCR 的容器包路径用 users/<owner>；先试 users，再回退 orgs（万一以后转组织）。
-            versions="$(gh api --paginate "users/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]' 2>/dev/null)" 
-              || versions="$(gh api --paginate "orgs/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]' 2>/dev/null)" 
+            versions="$(gh api --paginate "users/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]' 2>/dev/null)" \
+              || versions="$(gh api --paginate "orgs/${{ steps.ctx.outputs.owner }}/packages/container/$repo/versions" --jq '.[].metadata.container.tags[]' 2>/dev/null)" \
               || { echo "::error::$repo 在 GHCR 上查不到版本"; exit 1; }
             test -n "$versions" || { echo "::error::$repo 在 GHCR 上没有版本"; exit 1; }
             echo "$repo tags:"

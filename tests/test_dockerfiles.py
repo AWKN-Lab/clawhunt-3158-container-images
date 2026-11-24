@@ -18,7 +18,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-PINNED_BASES = {"python:3.11-slim", "node:22-alpine", "nginx:1.27-alpine"}
+PINNED_BASES = {"python:3.11-slim", "node:22-alpine", "nginx:1.30-alpine"}
 
 
 def read(rel: str) -> str:
@@ -76,7 +76,7 @@ def test_backend_builder_prefix_matches_copy():
 def test_web_multistage_and_pinned_base():
     text = read("web/Dockerfile")
     froms = from_lines(text)
-    assert froms == ["FROM node:22-alpine", "FROM nginx:1.27-alpine"]
+    assert froms == ["FROM node:22-alpine", "FROM nginx:1.30-alpine"]
 
 
 def test_web_non_root_and_port():

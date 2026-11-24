@@ -67,14 +67,44 @@ def test_latest_guard_step_exists():
 
 
 def test_trivy_blocks_on_critical():
+    # 门禁性质不变，实现分两层：build 作业用 CLI --exit-code 1 直接拦；
+    # evidence 作业先出 JSON 报告（--exit-code 0），再由 Python 断言
+    # CRITICAL/HIGH 命中就 exit 1。两种实现都要断言，不能只测一种。
     wf = load_workflow()
-    trivys = [s for s in steps_of(wf) if "trivy-action" in str(s.get("uses", ""))]
-    assert len(trivys) == 3, "两个表格式扫描 + 一个 SARIF 报告"
-    failing = [s for s in trivys if str(s["with"].get("exit-code")) == "1"]
-    assert len(failing) == 2, "两个镜像扫描步骤 exit-code 都须为 1"
-    for step in failing:
-        assert "CRITICAL" in step["with"]["severity"]
-        assert "short-sha" in step["with"]["image-ref"], "镜像引用须用短 SHA 标签"
+    all_steps = [s for j in wf["jobs"].values() for s in j.get("steps", [])]
+    trivys = [s for s in all_steps if "trivy:" in str(s.get("run", ""))]
+    assert len(trivys) >= 8, f"须有 build 2 表格扫描 + 2 SARIF + evidence 2 SARIF + 2 JSON + 1 负控，实测 {len(trivys)}"
+    # build 作业：两个镜像扫描 exit-code 1、含 CRITICAL、引用短 SHA 标签
+    build = wf["jobs"]["build"]["steps"]
+    build_scans = [s for s in build if "trivy:" in str(s.get("run", "")) and "--exit-code 1" in str(s.get("run", ""))]
+    assert len(build_scans) == 2, "build 作业两个镜像扫描 exit-code 都须为 1"
+    for step in build_scans:
+        assert "CRITICAL" in step["run"] and "HIGH" in step["run"]
+        assert "sha-" in step["run"], "镜像引用须用短 SHA 标签"
+    # evidence 作业：两个门禁断言步骤，须检查 CRITICAL/HIGH 并 exit 1
+    evidence = wf["jobs"]["evidence"]["steps"]
+    gates = [s for s in evidence if str(s.get("name", "")).startswith("门禁")]
+    assert len(gates) == 2, "evidence 作业须有两个门禁断言步骤"
+    for step in gates:
+        run = str(step.get("run", ""))
+        assert "CRITICAL" in run and "HIGH" in run, "门禁断言须检查 CRITICAL/HIGH"
+        assert "exit 1" in run, "门禁断言命中时必须 exit 1"
+    # SARIF 报告步骤须用 --exit-code 0（只出报告，不直接断作业）
+    sarifs = [s for s in trivys if "--format sarif" in str(s.get("run", ""))]
+    assert sarifs and all("--exit-code 0" in str(s.get("run", "")) for s in sarifs), \
+        "SARIF 报告步骤须用 --exit-code 0"
+
+
+def test_backend_smoke_uvicorn_start_health():
+    # 后端冒烟：runtime 移出 setuptools 后，最大的风险是 uvicorn 起不来。
+    # 只 import 不够，必须起容器并 curl /healthz（与前端冒烟同款）。
+    wf = load_workflow()
+    steps = wf["jobs"]["evidence"]["steps"]
+    smoke = [s for s in steps if "backend-smoke" in str(s.get("run", ""))]
+    assert smoke, "证据作业须有后端冒烟步骤"
+    run = str(smoke[0].get("run", ""))
+    assert "docker run -d" in run and "18081:8000" in run, "须起后端容器并映射 8000"
+    assert "curl -fsS" in run and "healthz" in run, "须 curl 健康接口，失败即失败"
 
 
 def test_trivy_report_uploaded_as_artifact():
@@ -153,42 +183,61 @@ def test_evidence_job_covers_acceptance_without_client_credentials():
     assert ac3, "验收 3 须用 GitHub REST API 查 GHCR 标签"
     assert "orgs/" in ac3[0] and "grep -qx 'latest'" in ac3[0]
     assert "--paginate" in ac3[0], "GHCR 标签查询须全量分页，否则旧版本里的 latest 会漏掉"
+    # owner 是用户账号：先查 users/，再回退 orgs/（两者都要有，缺一不可）
+    assert "users/" in ac3[0], "GHCR 包须先按用户账号查 users/ 接口"
+    assert ac3[0].index("users/") < ac3[0].index("orgs/"), "须先试 users/ 再回退 orgs/"
+    # 异常场景 1：任意一页出现 latest 都必须失败——grep 要对全量分页结果跑
+    assert r"""printf '%s\n' "$versions" | grep -qx 'latest'""" in ac3[0], \
+        "须对全量分页结果 grep latest，不能只查第一页"
+    # 异常场景 2：API 失败、查不到版本、版本为空都不能当成通过
+    assert "test -n \"$versions\"" in ac3[0], "版本为空必须失败"
+    assert "::error::" in ac3[0] and "exit 1" in ac3[0], "API 失败必须报错退出"
     assert "ghcr.io/v2" not in "\n".join(runs), "Registry API 直调已废除，须走 REST API"
 
     # 验收 4：旧基础镜像扫描预期失败，且须凭报告里的 CRITICAL 认定，不凭退出码
     vuln = [
         s
         for s in steps
-        if "trivy-action" in str(s.get("uses", "")) and s.get("continue-on-error") is True
+        if s.get("continue-on-error") is True and "trivy-vuln.json" in str(s.get("run", ""))
     ]
     assert vuln, "证据作业须有预期失败的旧基础镜像扫描（验收 4）"
-    assert vuln[0]["with"].get("format") == "json"
-    assert vuln[0]["with"].get("output") == "trivy-vuln.json"
+    assert "--format json" in vuln[0]["run"]
+    assert "--output trivy-vuln.json" in vuln[0]["run"]
     assert any(
         "steps.trivy-vuln.outcome" in r and "trivy-vuln.json" in r and "CRITICAL" in r
         for r in runs
     ), "断言步骤须同时核对 Trivy 退出状态与报告里的 CRITICAL"
 
-    # 正常扫描：两个镜像都扫 CRITICAL/HIGH，exit-code 1
-    scans = [
+    # 正常扫描：evidence 作业先出 JSON 报告（--exit-code 0），再由门禁断言
+    # CRITICAL/HIGH 命中就 exit 1——不能只认 --exit-code 1 的表格扫描。
+    json_scans = [
         s
         for s in steps
-        if "trivy-action" in str(s.get("uses", ""))
-        and str(s.get("with", {}).get("exit-code")) == "1"
-        and s.get("with", {}).get("format") == "table"
+        if "trivy:" in str(s.get("run", ""))
+        and "--format json" in str(s.get("run", ""))
+        and ("trivy-backend.json" in str(s.get("run", "")) or "trivy-web.json" in str(s.get("run", "")))
     ]
-    assert len(scans) == 2, "两个镜像的正常扫描 exit-code 都须为 1"
+    assert len(json_scans) == 2, "两个镜像的正常扫描须各出一份 JSON 报告"
+    gates = [s for s in steps if str(s.get("name", "")).startswith("门禁")]
+    assert len(gates) == 2, "两个镜像须各有一个门禁断言步骤"
+    for step in gates:
+        run = str(step.get("run", ""))
+        assert "CRITICAL" in run and "HIGH" in run, "门禁断言须检查 CRITICAL/HIGH"
+        assert "exit 1" in run, "门禁断言命中时必须 exit 1"
 
     # SARIF：前后端各一份
     sarifs = [
         s
         for s in steps
-        if "trivy-action" in str(s.get("uses", ""))
-        and s.get("with", {}).get("format") == "sarif"
+        if "trivy:" in str(s.get("run", ""))
+        and "--format sarif" in str(s.get("run", ""))
     ]
     assert len(sarifs) == 2, "前后端各需一份 SARIF 报告"
     assert {"trivy-backend.sarif", "trivy-web.sarif"} == {
-        s["with"]["output"] for s in sarifs
+        name
+        for s in sarifs
+        for name in ("trivy-backend.sarif", "trivy-web.sarif")
+        if name in str(s.get("run", ""))
     }
 
     # 构建：PR 只加载不推送，push 才推送 GHCR
@@ -206,6 +255,19 @@ def test_evidence_job_covers_acceptance_without_client_credentials():
         assert "pull_request" in str(step["with"]["load"])
 
 
+def test_web_smoke_nginx_config_start_health():
+    # 前端冒烟：apk upgrade 后 nginx 未必能起，必须实测——
+    # 配置检查（nginx -t）、版本打印（nginx -v）、起容器并 curl /healthz。
+    wf = load_workflow()
+    steps = wf["jobs"]["evidence"]["steps"]
+    smoke = [s for s in steps if "nginx -t" in str(s.get("run", ""))]
+    assert smoke, "证据作业须有前端 nginx 冒烟步骤"
+    run = str(smoke[0].get("run", ""))
+    assert "nginx -v" in run, "须打印 nginx 版本"
+    assert "docker run -d" in run and "healthz" in run, "须起容器并 curl 健康接口"
+    assert "curl -fsS" in run, "健康检查须用 curl -fsS，失败即失败"
+
+
 def test_sarif_generated_before_gate_scans_and_always_uploaded():
     # SARIF 须在带失败门禁的扫描之前生成，且上传步骤须 if: always()，
     # 否则扫描一失败报告就丢了。
@@ -216,14 +278,14 @@ def test_sarif_generated_before_gate_scans_and_always_uploaded():
     def first(pred):
         return next(i for i, s in enumerate(steps) if pred(s))
 
-    sarif_idx = first(lambda s: "trivy-action" in str(s.get("uses", "")) and s.get("with", {}).get("format") == "sarif")
-    scan_idx = first(lambda s: "trivy-action" in str(s.get("uses", "")) and str(s.get("with", {}).get("exit-code")) == "1" and s.get("with", {}).get("format") == "table")
-    assert sarif_idx < scan_idx, "SARIF 生成须在带失败门禁的扫描之前"
+    sarif_idx = first(lambda s: "trivy:" in str(s.get("run", "")) and "--format sarif" in str(s.get("run", "")))
+    gate_idx = first(lambda s: str(s.get("name", "")).startswith("门禁"))
+    assert sarif_idx < gate_idx, "SARIF 生成须在门禁断言之前"
     uploads = [s for s in steps if "upload-artifact" in str(s.get("uses", ""))]
     assert uploads, "须上传 SARIF 报告"
     assert str(uploads[0].get("if", "")) == "always()", "上传步骤须 if: always()，扫描失败时报告仍要保存"
     upload_idx = names.index(uploads[0].get("name", ""))
-    assert upload_idx < scan_idx, "上传须在带失败门禁的扫描之前"
+    assert upload_idx < gate_idx, "上传须在门禁断言之前"
 
 
 def test_terraform_ci_job_exists():
