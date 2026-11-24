@@ -32,8 +32,13 @@ RUN groupadd -r app -g 10001 \
     && useradd -r -u 10001 -g app app \
     && mkdir -p /app \
     && chown app:app /app \
-    # 删掉基础镜像自带的旧 setuptools / wheel（它们的 METADATA 带已知 HIGH 漏洞），
-    # 运行时只用 /usr/local 下 builder 装的新版（setuptools>=80.9.0 / wheel>=0.46.2）。
+    # 删掉**带漏洞的旧元数据**（Trivy 按 METADATA 判 ⇒ 实装版本升级了也不够）：
+    #   - setuptools-79.0.1.dist-info（METADATA 声明 jaraco.context 5.3.0 ⇒ CVE-2026-23949 HIGH）
+    #     装新版后旧 dist-info 仍并存于 /usr/local，必须显式删。
+    #   - setuptools/_vendor/wheel-0.45.1.dist-info（CVE-2026-24049 HIGH）
+    #     —— setuptools 自带的 vendored 副本，不在 dist-packages 里，前面删不到。
+    && find / -xdev \( -name "setuptools-79.*.dist-info" -o -name "wheel-0.45.*.dist-info" \) \
+         -exec rm -rf {} + 2>/dev/null || true \
     && rm -rf /usr/lib/python3/dist-packages/setuptools* /usr/lib/python3/dist-packages/wheel* \
     && python3 -c "import setuptools, wheel; print('setuptools', setuptools.__version__, '| wheel', wheel.__version__)"
 
