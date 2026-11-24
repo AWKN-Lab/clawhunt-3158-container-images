@@ -1,0 +1,13 @@
+# 验收 4 的触发样本：含 CRITICAL 漏洞的旧基础镜像（#3158）
+#
+# python:3.7 早已停止维护（EOL 2023-06-27），其标准库与系统包带大量
+# 未修复 CVE；工作流里的 Trivy 步骤（severity CRITICAL,HIGH、
+# exit-code 1）扫到这类镜像时会失败。本文件只作触发说明，不参与构建。
+# 本机无 docker，镜像扫描未执行，见 ACCEPTANCE.md。
+FROM python:3.7-slim AS runtime
+
+WORKDIR /app
+
+COPY app/main.py ./main.py
+
+EXPOSE 8000

@@ -1,0 +1,18 @@
+--- npm ci ---
+
+up to date in 292ms
+--- npm run build ---
+
+> membership-web-stub@0.1.0 build
+> node scripts/build.mjs
+
+built /home/hatch/workspace/goals/20/hidden_files/clawhunt-hourly-build/3158/clawhunt-3158-container-images/web/dist
+--- dist 内容 ---
+total 4
+drwxrws--- 1 root nogroup  20 Nov 24 01:33 .
+drwxrws--- 1 root nogroup 132 Nov 24 01:33 ..
+-rw-rw---- 1 root nogroup 409 Nov 24 01:33 index.html
+dist/index.html ok
+--- nginx.conf 关键指令 ---
+nginx.conf ok
+WEB-BUILD PASS

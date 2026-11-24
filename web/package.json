@@ -1,0 +1,1 @@
+{"description":"会员空间平台工作台前端 · 最小可构建桩（#3158）。真实前端替换 public/ 与构建脚本即可，Dockerfile 与 nginx 配置不需改。","engines":{"node":">=20"},"name":"membership-web-stub","private":true,"scripts":{"build":"node scripts/build.mjs"},"version":"0.1.0"}
