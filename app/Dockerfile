@@ -32,15 +32,17 @@ RUN groupadd -r app -g 10001 \
     && useradd -r -u 10001 -g app app \
     && mkdir -p /app \
     && chown app:app /app \
-    # 删掉**带漏洞的旧元数据**（Trivy 按 METADATA 判 ⇒ 实装版本升级了也不够）：
-    #   - setuptools-79.0.1.dist-info（METADATA 声明 jaraco.context 5.3.0 ⇒ CVE-2026-23949 HIGH）
-    #     装新版后旧 dist-info 仍并存于 /usr/local，必须显式删。
-    #   - setuptools/_vendor/wheel-0.45.1.dist-info（CVE-2026-24049 HIGH）
-    #     —— setuptools 自带的 vendored 副本，不在 dist-packages 里，前面删不到。
-    && find / -xdev \( -name "setuptools-79.*.dist-info" -o -name "wheel-0.45.*.dist-info" \) \
-         -exec rm -rf {} + 2>/dev/null || true \
-    && rm -rf /usr/lib/python3/dist-packages/setuptools* /usr/lib/python3/dist-packages/wheel* \
-    && python3 -c "import setuptools, wheel; print('setuptools', setuptools.__version__, '| wheel', wheel.__version__)"
+    # 运行时**不需要** setuptools / wheel（只装 fastapi + uvicorn，都是 wheel 包）⇒ 整个移出镜像。
+    # 原因：**Trivy 按 METADATA 的依赖声明判漏洞** —— setuptools 的 METADATA 里写的是
+    # `jaraco.context>=5.3.0`，Trivy 会按 **5.3.0** 判 CVE-2026-23949（HIGH），
+    # **无论实装哪个版本都会命中**；vendored 的 wheel-0.45.1.dist-info 还会命中 CVE-2026-24049。
+    # ⇒ 唯一干净解：让镜像里**没有 setuptools 的 METADATA**（构建期工具链不留在 runtime）。
+    && rm -rf /usr/local/lib/python3.11/site-packages/setuptools \
+             /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
+             /usr/local/lib/python3.11/site-packages/pkg_resources \
+             /usr/lib/python3/dist-packages/setuptools* \
+             /usr/lib/python3/dist-packages/wheel* \
+    && python3 -c "import fastapi, uvicorn; print('runtime deps ok | fastapi', fastapi.__version__)"
 
 WORKDIR /app
 
