@@ -50,7 +50,7 @@
 
 | # | 标准 | 结果 |
 |---|------|------|
-| 1 | PR 构建通过，GHCR 无写入 | 待验证（本次为 push 运行；见下） |
+| 1 | PR 构建通过，GHCR 无写入 | 通过（PR run 45430219811：evidence + terraform 全绿；全程 0 次 GHCR 推送） |
 | 2 | Push 构建通过，两个镜像推送成功 | 通过（两镜像已推 GHCR，sha-babdd36） |
 | 3 | 两个容器实际运行验收 | 通过（后端 whoami=app；前后端冒烟 curl /healthz 成功） |
 | 4 | 镜像逐层检查 .env、.git | 通过（后端 8 层、前端 11 层 clean） |
@@ -60,8 +60,16 @@
 | 8 | GHCR 全量分页检查，无 latest | 通过（users 优先 + orgs 回退 + --paginate） |
 | 9 | Terraform CI 通过 | 通过（terraform 作业 success） |
 
-第 1 项说明：PR 路径由工作流静态核验覆盖
-（tests 断言 PR 只加载不推送，`push` 条件只在 push 事件为真）。
+第 1 项说明：PR run 45430219811 实测通过（PR #1，分支 `docs/acceptance-ci-evidence`，
+提交 8d07d08）：evidence 作业全绿，PR 运行日志中 0 行 `pushing layers` /
+`pushing manifest`，镜像只在本地构建（`sha-8845119`），未写入 GHCR。
+此前“待验证”是因为当时只做了静态核验（tests 断言 PR 只加载不推送）；
+现已由 PR run 实测闭合，九项 9/9。
+
+第 5 项限定：HITS=0 是 CI run 45429409322 当时的结论，绑定当时的基础镜像
+digest 与 Trivy DB；基础镜像用浮动 tag（`python:3.11-slim`），
+按当前 HEAD 重建复扫会得到不同结果（2026-11-25 复扫命中 `zlib1g` HIGH，
+CVE-2026-85091）。复算须 pin digest + 记 Trivy DB 时间戳（见 pitfalls 75）。
 
 ## 附加验证（超出验收标准，实测发现并修掉的问题）
 
