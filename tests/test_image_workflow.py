@@ -297,8 +297,10 @@ def test_reports_uploaded_after_json_scans_with_multiline_path():
 
 
 def test_gate_zero_hits_use_notice_not_error():
-    # 第七轮 P1-1：零命中时不能打 ::error:: 注解（否则每次都红），
-    # 有命中才用 ::error::。
+    # 第七轮 P1-1 + 第八轮问题 A/B：零命中时不能打 ::error:: 注解（否则每次都红），
+    # 有命中才用 ::error::；打印清单只收集 CRITICAL/HIGH（与门禁口径一致，
+    # 否则 MEDIUM 也会触发红色注解而门禁实际通过）；逐条详情必须是普通文本，
+    # 不能把扫描数据拼进 ::error::（annotation 注入）。
     wf = load_workflow()
     steps = wf["jobs"]["evidence"]["steps"]
     gates = [s for s in steps if str(s.get("name", "")).startswith("门禁")]
@@ -308,6 +310,10 @@ def test_gate_zero_hits_use_notice_not_error():
         assert "::notice::" in run, "零命中须用 ::notice::"
         assert "if not h else '::error::'" in run or 'if not h else "::error::"' in run, \
             "有命中时才用 ::error::"
+        assert "if v.get('Severity') in ('CRITICAL','HIGH')" in run, \
+            "打印清单只收集 CRITICAL/HIGH，与门禁口径一致"
+        assert "print('::error::  %s" not in run, \
+            "逐条漏洞详情须是普通文本，不能拼进 ::error::"
     # SARIF 须在带失败门禁的扫描之前生成，且上传步骤须 if: always()，
     # 否则扫描一失败报告就丢了。
     wf = load_workflow()

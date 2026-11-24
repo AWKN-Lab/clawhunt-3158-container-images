@@ -13,14 +13,12 @@ WORKDIR /build
 
 COPY app/requirements.txt .
 
-# 装完运行时依赖后**升级 setuptools 与 wheel**（下限保留）：
-# python:3.11-slim 自带 setuptools 79.0.1 / wheel 0.45.1。
-# 注意：升级本身不清旧文件——setuptools _vendor 里内嵌的旧版
-# jaraco.context 5.3.0 / wheel 0.45.1 的 dist-info（SARIF 实测）
-# 目录名与新版不同（jaraco.context- vs jaraco_context-），COPY 合并时
-# 旧文件不会被覆盖，留着就会被 Trivy 判 HIGH。旧文件在 COPY 之后删（见下）。
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
-    && pip install --no-cache-dir --prefix=/install --upgrade "setuptools>=82.0.0" "wheel>=0.46.2"
+# 只装运行时依赖（fastapi + uvicorn）。setuptools / wheel 不装进 /install：
+# runtime 不需要它们，装了也会在 COPY 之后被删掉（见下），纯属浪费构建时间。
+# 基础镜像自带的 setuptools 79.0.1（_vendor 内嵌旧版 jaraco.context 5.3.0 /
+# wheel 0.45.1 的 dist-info，SARIF 实测）也在 COPY 之后删——目录名与新版不同
+#（jaraco.context- vs jaraco_context-），COPY 合并时旧文件不会被覆盖。
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ---------- runtime：非 root 运行，只含运行所需文件 ----------
 FROM python:3.11-slim AS runtime
@@ -37,10 +35,11 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 # 运行时**不需要** setuptools / wheel（只装 fastapi + uvicorn，都是 wheel 包）⇒ 整个移出镜像。
-# **必须放在 COPY 之后**：builder 阶段装进 /install 的 setuptools 会被 COPY 回来。
-# 删什么：基础镜像自带的 setuptools 79.0.1（_vendor 内嵌旧版 jaraco.context 5.3.0 /
-# wheel 0.45.1 的 dist-info，SARIF 实测）与 builder 装进 /install 的新版 setuptools/wheel；
-# 目录名与新版不同（jaraco.context- vs jaraco_context-），COPY 合并时旧文件不会被覆盖。
+# 删除放在 COPY 之后：一次覆盖最终镜像里的全部来源——基础镜像自带的
+# setuptools 79.0.1（_vendor 内嵌旧版 jaraco.context 5.3.0 / wheel 0.45.1
+# 的 dist-info，SARIF 实测）与顶层 wheel。目录名与新版不同
+#（jaraco.context- vs jaraco_context-），COPY 合并时旧文件不会被覆盖，
+# 留着就会被 Trivy 判 HIGH。
 RUN rm -rf /usr/local/lib/python3.11/site-packages/setuptools \
              /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
              /usr/local/lib/python3.11/site-packages/wheel \

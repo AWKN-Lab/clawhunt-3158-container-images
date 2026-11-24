@@ -5,7 +5,7 @@ rootdir: /home/hatch/workspace/goals/20/hidden_files/clawhunt-hourly-build/3158/
 plugins: anyio-4.16.0
 collecting ... collected 39 items
 
-tests/test_dockerfiles.py::test_backend_builder_tools_isolated_from_install PASSED [  2%]
+tests/test_dockerfiles.py::test_backend_setuptools_removed_after_copy_not_before PASSED [  2%]
 tests/test_dockerfiles.py::test_backend_runtime_has_no_setuptools_wheel PASSED [  5%]
 tests/test_dockerfiles.py::test_backend_multistage_and_pinned_base PASSED [  7%]
 tests/test_dockerfiles.py::test_backend_non_root_user PASSED             [ 10%]
@@ -45,4 +45,4 @@ tests/test_terraform.py::test_enterprise_period_confirmation_gate PASSED [ 94%]
 tests/test_terraform.py::test_registry_endpoint_prefers_internet_with_precondition PASSED [ 97%]
 tests/test_terraform.py::test_both_edition_branches_present PASSED       [100%]
 
-============================== 39 passed in 0.59s ==============================
+============================== 39 passed in 0.69s ==============================
