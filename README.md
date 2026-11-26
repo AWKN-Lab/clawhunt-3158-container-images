@@ -81,6 +81,45 @@ Trivy：两个镜像各扫一次，`severity: CRITICAL,HIGH`，
 | 仓库 Variables | `ACR_NAMESPACE` | 命名空间名，须客户先在 ACR 建好 |
 | Environment `prod` secrets | `ACR_USERNAME` / `ACR_PASSWORD` | RAM 子账号，只授 ACR 推送权限 |
 
+### AC3 复核：客户 ACR 配好后如何核查
+
+仓库中无 `latest` 标签这一条，在客户配好 ACR 之前由 `evidence` 作业
+在 GHCR 上核查（见 `evidence/test-ghcr-tags.log`，CI 运行 45440459117，
+两仓库各 14 个标签，全为 `sha-*`，无 `latest`）。
+
+**声明：GHCR 已完成验证，客户 ACR 尚未完成实际推送，买方提供凭据后才能完成该部分。**
+
+客户配好上表三项后，同一条改由 `build` 作业在客户 ACR 上核查：
+
+1. 客户在仓库 Variables 配好 `ACR_REGISTRY`、`ACR_NAMESPACE`，
+   在 Environment `prod` secrets 配好 `ACR_USERNAME` / `ACR_PASSWORD`。
+2. 下一次 push 到 `main`（或打 `v*` tag）触发 `build` 作业
+   （此前 ACR 变量为空时按设计跳过）：
+   - 「校验镜像仓库配置」确认两个变量非空；
+   - 标签只生成短 SHA（`sha-<7 位>`）与版本号（打 `v*` tag 时），
+     `flavor: latest=false`；
+   - 「拒绝 latest 标签」步骤对两个镜像的标签逐行检查 `:latest$`，
+     有则失败，无则输出 `no latest tag: ok`；
+   - 「登录私有镜像仓库」用 `ACR_USERNAME` / `ACR_PASSWORD` 登录客户 ACR，
+     随后构建并推送 `$ACR_REGISTRY/$ACR_NAMESPACE/backend` 与 `…/web`。
+3. 复核命令（客户侧，凭据配好后）：
+   ```bash
+   curl -s -u "$ACR_USERNAME:$ACR_PASSWORD" \
+     "https://$ACR_REGISTRY/v2/$ACR_NAMESPACE/backend/tags/list"
+   curl -s -u "$ACR_USERNAME:$ACR_PASSWORD" \
+     "https://$ACR_REGISTRY/v2/$ACR_NAMESPACE/web/tags/list"
+   ```
+   两处返回的标签列表应全为 `sha-*` 或版本号，不含 `latest`。
+   有 Azure CLI 时也可用
+   `az acr repository show-tags --name <ACR 注册表名> --repository $ACR_NAMESPACE/backend`
+   与 `…/web` 同法。
+4. 复核证据：取触发那次 CI 运行的 `build` 作业日志，
+   「拒绝 latest 标签」步骤输出 `no latest tag: ok`，
+   加上述两条 tags/list 命令的输出，一并记入验收记录。
+
+本次返工只新增 evidence 日志与文档，未改任何代码；
+最新代码验证仍绑定 CI 运行 45440459117。
+
 ## 回滚
 
 镜像按 SHA 标签不可覆盖（须在 ACR 侧开启标签不可变，见下），
@@ -89,12 +128,14 @@ Trivy：两个镜像各扫一次，`severity: CRITICAL,HIGH`，
 
 ## 未执行清单（须客户凭证 / 有 docker 的环境）
 
+以下为本机或客户侧仍未执行的项。CI 已完成的部分：AC1、AC2 在 GHCR 上的验证（运行 45440459117）、GHCR 无 latest 核查、镜像构建与 Trivy 完整形态扫描；仍未完成：客户 ACR 推送、本机 Docker 验证、Terraform 实际创建。
+
 | # | 未执行项 | 原因 | 补齐条件 |
 |---|---|---|---|
-| 1 | 镜像构建（`docker build`） | 本机无 docker | CI `evidence` 作业构建（待首次绿跑） |
-| 2 | 容器内验证（验收 1：`whoami` 输出 `app`；验收 2：解包检查无 `.env`/`.git`） | 同上 | 同上；`USER app` 与 `.dockerignore` 已静态核验（见 `ACCEPTANCE.md`） |
-| 3 | Trivy 镜像扫描与报告（验收 4 完整形态） | 同上 | 同上；扫描配置已静态核验，CRITICAL 失败机制已本地验证，CI 里跑完整形态 |
-| 4 | 推送到客户私有仓库、仓库中无 `latest` 标签的核查（验收 3 后半） | 无客户云账号与仓库凭证 | 配好接入表三项后由 CI `build` 作业执行；`evidence` 作业先在 GHCR 核查无 latest（待首次绿跑） |
+| 1 | 镜像构建（`docker build`） | 本机无 docker | CI `evidence` 作业已在运行 45440459117 构建并推送到 GHCR；本机仍未执行 |
+| 2 | 容器内验证（验收 1：`whoami` 输出 `app`；验收 2：解包检查无 `.env`/`.git`） | 同上 | CI 已完成：运行 45440459117 的 `evidence` 作业在 GHCR 镜像上实测通过（见 `evidence/test-whoami-docker.log`、`evidence/test-layers-clean.log`）；本机仍未执行；`USER app` 与 `.dockerignore` 已静态核验（见 `ACCEPTANCE.md`） |
+| 3 | Trivy 镜像扫描与报告（验收 4 完整形态） | 同上 | CI 已跑完整形态（运行 45440459117，见 `ACCEPTANCE.md`）；本机 Trivy 回归本轮未完成（见 `ACCEPTANCE.md` 本轮回归说明） |
+| 4 | 推送到客户私有仓库、仓库中无 `latest` 标签的核查（验收 3 后半） | 无客户云账号与仓库凭证 | 客户 ACR 推送仍未完成，配好接入表三项后由 CI `build` 作业执行；GHCR 核查已完成：运行 45440459117 的 `evidence` 作业核查无 latest（见 `evidence/test-ghcr-tags.log`） |
 | 5 | Terraform 创建镜像仓库命名空间与 `backend`、`web` 两个私有仓库 | 无客户云账号；且须先确认账号开通的是企业版还是个人版 | 草稿已写在 `terraform/`（版本用变量开关）；客户提供账号版本 + 命名空间名后 `plan/apply` |
 | 6 | 推送成功截图与 Trivy 报告 | 依赖 1–4 | 1–4 执行后补进 `evidence/` |
 

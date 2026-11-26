@@ -1,0 +1,23 @@
+# 来源：CI 运行 45440459117 的 evidence 作业指定步骤摘录
+# CI Run：45440459117
+# Commit：259ab246
+# Job：evidence
+# Step：「验收 1：容器内 whoami 输出 app」
+# 运行链接：https://github.com/AWKN-Lab/clawhunt-3158-container-images/actions/runs/45440459117
+# 原始日志 SHA256：52a312a3f102b14f69817d8c5455aacd2187c463d7baf1e4b8588257b7da8931
+# 原始日志：该运行 evidence 作业完整日志（1760 行），摘录范围为源日志第 978–987 行
+# 提取时间：2026-11-26 23:42 CST
+# 提取方式：按行号逐字摘出，仅去除行首时间戳与 ANSI 颜色码；保留原始顺序、完整命令与全部内容，未删改任何行
+# 步骤结果：成功（exit 0；作业最终状态 completed success）
+# 注意：本文件是指定步骤的摘录，不是该步骤或该作业的完整日志；摘录来自 CI 在 GHCR 上的执行，不是本机实跑，不是 161 实跑，也不是客户 ACR 验证
+
+##[group]Run out="$(docker run --rm ghcr.io/awkn-lab/clawhunt-3158-backend:sha-259ab24 whoami)"
+out="$(docker run --rm ghcr.io/awkn-lab/clawhunt-3158-backend:sha-259ab24 whoami)"
+echo "whoami=$out"
+test "$out" = "app"
+shell: /usr/bin/bash -e {0}
+env:
+  REGISTRY: 
+  NAMESPACE: 
+##[endgroup]
+whoami=app

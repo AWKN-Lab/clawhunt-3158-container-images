@@ -1,0 +1,56 @@
+# 来源：CI 运行 45440459117 的 evidence 作业指定步骤摘录
+# CI Run：45440459117
+# Commit：259ab246
+# Job：evidence
+# Step：「验收 2：镜像内无 .env 与 .git」
+# 运行链接：https://github.com/AWKN-Lab/clawhunt-3158-container-images/actions/runs/45440459117
+# 原始日志 SHA256：52a312a3f102b14f69817d8c5455aacd2187c463d7baf1e4b8588257b7da8931
+# 原始日志：该运行 evidence 作业完整日志（1760 行），摘录范围为源日志第 1048–1090 行
+# 提取时间：2026-11-26 23:42 CST
+# 提取方式：按行号逐字摘出，仅去除行首时间戳与 ANSI 颜色码；保留原始顺序、完整命令与全部内容，未删改任何行
+# 步骤结果：成功（exit 0；作业最终状态 completed success）
+# 注意：本文件是指定步骤的摘录，不是该步骤或该作业的完整日志；摘录来自 CI 在 GHCR 上的执行，不是本机实跑，不是 161 实跑，也不是客户 ACR 验证
+
+##[group]Run set -euo pipefail
+set -euo pipefail
+docker run --rm ghcr.io/awkn-lab/clawhunt-3158-backend:sha-259ab24 sh -c 'test ! -e /app/.env && test ! -d /app/.git && echo backend-clean'
+docker run --rm ghcr.io/awkn-lab/clawhunt-3158-web:sha-259ab24 sh -c 'test ! -e /usr/share/nginx/html/.env && echo web-clean'
+check_layers() {
+  local image="$1"
+  local work layerdir
+  work="$(mktemp -d)"
+  layerdir="$work/unpacked"
+  # 归档格式有两种，**都要兼容**：
+  #   docker-archive（旧）：<hash>/layer.tar
+  #   OCI（buildx 推送的默认格式）：blobs/sha256/<digest>（层是无扩展名的 tar）
+  # 只认前一种 ⇒ 在 buildx 推的镜像上会误判成"未发现任何镜像层"。
+  docker save "$image" | tar -x -C "$work"
+  local found=0 unpacked=0
+  while IFS= read -r layer; do
+    rm -rf "${layerdir:?}"/* 2>/dev/null || true
+    mkdir -p "$layerdir"
+    # 非 tar 成员（OCI 的 config json）解包会失败 ⇒ 跳过，不算层
+    tar -x -f "$layer" -C "$layerdir" 2>/dev/null || continue
+    [ -n "$(ls -A "$layerdir" 2>/dev/null)" ] || continue
+    unpacked=$((unpacked+1))
+    if find "$layerdir" \( -name '.env' -o -name '.env.*' -o -name '.git' \) -print -quit | grep -q .; then
+      echo "::error::$image 镜像层 $layer 内发现 .env 或 .git"
+      found=1
+    fi
+  done < <(find "$work" -type f \( -name 'layer.tar' -o -path '*/blobs/sha256/*' \) 2>/dev/null)
+  rm -rf "$work"
+  [ "$unpacked" -gt 0 ] || { echo "::error::$image 未发现任何可解包的镜像层"; exit 1; }
+  [ "$found" -eq 0 ] || exit 1
+  echo "$image layers clean (解包 $unpacked 层)"
+}
+check_layers ghcr.io/awkn-lab/clawhunt-3158-backend:sha-259ab24
+check_layers ghcr.io/awkn-lab/clawhunt-3158-web:sha-259ab24
+shell: /usr/bin/bash -e {0}
+env:
+  REGISTRY: 
+  NAMESPACE: 
+##[endgroup]
+backend-clean
+web-clean
+ghcr.io/awkn-lab/clawhunt-3158-backend:sha-259ab24 layers clean (解包 8 层)
+ghcr.io/awkn-lab/clawhunt-3158-web:sha-259ab24 layers clean (解包 11 层)

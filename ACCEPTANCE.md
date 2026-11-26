@@ -1,16 +1,19 @@
 # #3158 验收记录（ACCEPTANCE）
 
 订单 #3158：企业空间 · 容器镜像构建与漏洞扫描
-提交：`babdd36`（main）
-首次 CI：run [45429409322](https://github.com/AWKN-Lab/clawhunt-3158-container-images/actions/runs/45429409322)
-（2026-11-24 23:46–23:48 CST，evidence + terraform 全绿；build 作业按设计跳过——无客户 ACR 变量）
+提交：`259ab24`（main）
+首次 CI：run [45429409322](https://github.com/AWKN-Lab/clawhunt-3158-container-images/actions/runs/45429409322)（2026-11-24 23:46–23:48 CST）为首次绿跑；当前提交的 CI：run [45440459117](https://github.com/AWKN-Lab/clawhunt-3158-container-images/actions/runs/45440459117)
+（2026-11-25 00:43–00:44 CST，evidence + terraform 全绿；build 作业按设计跳过——无客户 ACR 变量）
+
+本次返工只新增 evidence 日志与文档，未改任何代码；
+最新代码验证仍绑定 CI 运行 45440459117。
 
 ## 平台验收 4 项（全部通过，CI 实测）
 
 ### AC1：后端容器内 `whoami` 输出 `app`
 
 - CI 步骤「验收 1：容器内 whoami 输出 app」：`whoami=app`，通过。
-- 镜像：`ghcr.io/awkn-lab/clawhunt-3158-backend:sha-babdd36`。
+- 镜像：`ghcr.io/awkn-lab/clawhunt-3158-backend:sha-259ab24`。
 
 ### AC2：镜像中不存在 `.env` 文件与 `.git` 目录（附命令输出）
 
@@ -20,11 +23,12 @@
 
 ### AC3：仓库中镜像标签为短 SHA 或版本号，不存在 `latest` 标签
 
-- 镜像标签：`sha-babdd36`（短 SHA），另有版本 tag 机制（v* tag 触发时打版本 tag）。
+- 镜像标签：`sha-259ab24`（短 SHA），另有版本 tag 机制（v* tag 触发时打版本 tag）。
   仓库中无 `latest` 标签。
 - CI 步骤「验收 3：GHCR 仓库无 latest 标签（仅 push 事件）」：
   先查 `users/<owner>` 再回退 `orgs/`，全量 `--paginate`，
   对全部分页结果 `grep -qx 'latest'`，通过。
+- **声明：GHCR 已完成验证，客户 ACR 尚未完成实际推送，买方提供凭据后才能完成该部分。**
 
 ### AC4：换成含 CRITICAL 漏洞的旧基础镜像时 Trivy 步骤失败
 
@@ -38,7 +42,7 @@
 
 - 后端：`HITS=0`（CRITICAL/HIGH 零命中），SARIF 0 条结果。
 - 前端：`HITS=0`（CRITICAL/HIGH 零命中），SARIF 0 条结果。
-- 证据：CI artifact `trivy-reports-evidence`（64,414 字节，4 个文件）：
+- 证据：CI artifact `trivy-reports-evidence`（64,412 字节，4 个文件）：
   `trivy-backend.sarif`、`trivy-web.sarif`、
   `trivy-backend.json`、`trivy-web.json`
   （JSON 报告各 0 个漏洞）。
@@ -51,7 +55,7 @@
 | # | 标准 | 结果 |
 |---|------|------|
 | 1 | PR 构建通过，GHCR 无写入 | 通过（PR run 45430219811：evidence + terraform 全绿；全程 0 次 GHCR 推送） |
-| 2 | Push 构建通过，两个镜像推送成功 | 通过（两镜像已推 GHCR，sha-babdd36） |
+| 2 | Push 构建通过，两个镜像推送成功 | 通过（两镜像已推 GHCR，sha-259ab24） |
 | 3 | 两个容器实际运行验收 | 通过（后端 whoami=app；前后端冒烟 curl /healthz 成功） |
 | 4 | 镜像逐层检查 .env、.git | 通过（后端 8 层、前端 11 层 clean） |
 | 5 | 正常 Trivy CRITICAL/HIGH 失败门禁 | 通过（两镜像 HITS=0，门禁逻辑实测） |
@@ -66,7 +70,7 @@
 此前“待验证”是因为当时只做了静态核验（tests 断言 PR 只加载不推送）；
 现已由 PR run 实测闭合，九项 9/9。
 
-第 5 项限定：HITS=0 是 CI run 45429409322 当时的结论，绑定当时的基础镜像
+第 5 项限定：HITS=0 是 CI run 45440459117 当时的结论，绑定当时的基础镜像
 digest 与 Trivy DB；基础镜像用浮动 tag（`python:3.11-slim`），
 按当前 HEAD 重建复扫会得到不同结果（2026-11-25 复扫命中 `zlib1g` HIGH，
 CVE-2026-85091）。复算须 pin digest + 记 Trivy DB 时间戳（见 pitfalls 75）。
@@ -84,5 +88,16 @@ CVE-2026-85091）。复算须 pin digest + 记 Trivy DB 时间戳（见 pitfalls
    fastapi 自证位置错误、AC3 续行符语法错误、setuptools 被 COPY
    带回 runtime、upload-artifact 路径折叠、JSON 先于上传的顺序问题、
    nginx pid 目录符号链接权限问题；全部以 CI 实测收口。
-4. 本地总跑 `tests/run_all.sh`：**ALL PASS**
-   （pytest 39 passed；后端本地实测、前端构建实测、Trivy 本地实测全过）。
+4. 本地总跑 `tests/run_all.sh`（历史结果，2026-11-24 晚，本机）：**ALL PASS**
+   （pytest 39 passed；后端本地实测、前端构建实测、Trivy 本地实测全过；
+   Trivy 0.76.2，漏洞库 v2，2026-11-23 19:02 UTC 更新，扫描时间 2026-11-24 23:46 CST；
+   见 `evidence/test-trivy-local.log`）。
+5. 本轮返工本地回归（2026-11-26，干净副本，无 `.git`）：pytest 39 passed，
+   后端本地实测 PASS，前端构建实测 PASS，`run_all.sh` 退出码 0；
+   Trivy 步骤在 `run_all.sh` 内 SKIP，单独补跑因漏洞库下载超时失败
+   （2026-11-26 23:55 CST 至 2026-11-27 00:26 CST，mirror.gcr.io，
+   `context deadline exceeded`，FATAL，exit 1），未进入扫描阶段，未发现漏洞。
+   失败日志 `trivy-local-output-2026-11-26.log` 已保留在返工工作记录中，未随本次推送进仓。
+   本轮未改任何 Dockerfile / 代码 / 工作流，Trivy 输入文件未变，第 4 项历史结果不受影响。
+   2026-11-27 四项文字修改后重跑，pytest 39 passed、后端 PASS、前端 PASS，
+   `run_all.sh` 退出码 0，结果与 2026-11-26 一致。
